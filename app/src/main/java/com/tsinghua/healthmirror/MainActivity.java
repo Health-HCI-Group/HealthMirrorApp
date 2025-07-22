@@ -1,6 +1,7 @@
 package com.tsinghua.healthmirror;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -13,10 +14,12 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.util.Log;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -31,6 +34,7 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.UUID;
@@ -149,14 +153,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadPairedDevices() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
+
 
         Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
         deviceList.clear();
         bluetoothDeviceList.clear();
-
+        Log.e("pairedDevices", pairedDevices.toString());
         for (BluetoothDevice device : pairedDevices) {
             String deviceName = device.getName();
             if (deviceName != null && deviceName.contains("HealthMirror")) {
@@ -193,7 +195,7 @@ public class MainActivity extends AppCompatActivity {
 
         deviceList.clear();
         bluetoothDeviceList.clear();
-        loadPairedDevices(); // 先加载已配对设备
+        loadPairedDevices();
 
         bluetoothAdapter.startDiscovery();
         statusText.setText("正在扫描设备...");
@@ -230,10 +232,6 @@ public class MainActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    return;
-                }
-
                 bluetoothSocket = connectedDevice.createRfcommSocketToServiceRecord(SPP_UUID);
                 bluetoothAdapter.cancelDiscovery();
 
@@ -248,6 +246,7 @@ public class MainActivity extends AppCompatActivity {
                     statusText.setText("Connected to " + connectedDevice.getName());
                     Toast.makeText(MainActivity.this, "Connected successfully!", Toast.LENGTH_SHORT).show();
                 });
+                Log.d(TAG, "BluetoothSocket isConnected: " + bluetoothSocket.isConnected());
 
             } catch (IOException e) {
                 Log.e(TAG, "Connection failed", e);
@@ -281,6 +280,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleReceivedData(String data) {
+        Log.d(TAG, "Handling received data: " + data);
         try {
             JSONObject json = new JSONObject(data);
 
@@ -319,10 +319,14 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 String commandStr = command.toString();
-                outputStream.write(commandStr.getBytes());
-                outputStream.flush();
+                Log.d(TAG, "准备发送原始数据: " + commandStr);
+                byte[] bytes = commandStr.getBytes(StandardCharsets.UTF_8);
+                Log.d(TAG, "字节数组长度: " + bytes.length);
 
-                Log.d(TAG, "Sent: " + commandStr);
+                outputStream.write(bytes);
+                outputStream.flush();
+                Log.d(TAG, "数据已刷新到输出流");
+
                 mainHandler.post(() -> statusText.setText("Sent: " + commandStr));
 
             } catch (IOException e) {
@@ -348,11 +352,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void syncTime() {
         try {
+
             JSONObject command = new JSONObject();
             JSONObject timeData = new JSONObject();
             timeData.put("time", System.currentTimeMillis() / 1000.0);
             command.put("set_time", timeData);
-
             sendCommand(command);
         } catch (JSONException e) {
             Log.e(TAG, "Error creating sync time command", e);
@@ -405,23 +409,67 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void configWifi() {
-        // This would typically open a dialog for WiFi configuration
-        // For demonstration, using hardcoded values
-        try {
-            JSONObject command = new JSONObject();
-            JSONObject wifiData = new JSONObject();
-            wifiData.put("ssid", "Tsinghua_Secure");
-            wifiData.put("auth", "EAP_PEAP");
-            wifiData.put("username", "zhangsan24");
-            wifiData.put("password", "1234abcd");
-            wifiData.put("time", System.currentTimeMillis() / 1000.0);
-            command.put("config_wifi", wifiData);
+        // 创建输入框
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 40, 50, 10);
 
-            sendCommand(command);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating config wifi command", e);
-        }
+        final EditText ssidInput = new EditText(this);
+        ssidInput.setHint("SSID");
+        layout.addView(ssidInput);
+
+        final EditText authInput = new EditText(this);
+        authInput.setHint("Auth (OPEN / WPA2_PSK / EAP_PEAP / EAP_TTLS)");
+        layout.addView(authInput);
+
+        final EditText usernameInput = new EditText(this);
+        usernameInput.setHint("Username (if required)");
+        layout.addView(usernameInput);
+
+        final EditText passwordInput = new EditText(this);
+        passwordInput.setHint("Password");
+        passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        layout.addView(passwordInput);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Configure WiFi")
+                .setView(layout)
+                .setPositiveButton("OK", (dialogInterface, i) -> {
+                    try {
+                        String ssid = ssidInput.getText().toString();
+                        String auth = authInput.getText().toString();
+                        String username = usernameInput.getText().toString();
+                        String password = passwordInput.getText().toString();
+
+                        JSONObject command = new JSONObject();
+                        JSONObject wifiData = new JSONObject();
+                        wifiData.put("ssid", ssid);
+                        wifiData.put("auth", auth);
+
+                        // 只有在 auth 不为 OPEN 或 WPA2_PSK 时才包含 username
+                        if (!auth.equals("OPEN") && !auth.equals("WPA2_PSK")) {
+                            wifiData.put("username", username);
+                        }
+
+                        // 只要不是 OPEN 都需要密码
+                        if (!auth.equals("OPEN")) {
+                            wifiData.put("password", password);
+                        }
+
+                        wifiData.put("time", System.currentTimeMillis() / 1000.0);
+                        command.put("config_wifi", wifiData);
+
+                        sendCommand(command);
+                    } catch (JSONException e) {
+                        Log.e(TAG, "Error creating config wifi command", e);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+
+        dialog.show();
     }
+
 
     @Override
     protected void onDestroy() {
@@ -457,9 +505,9 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (allGranted) {
-                initBluetooth();
+                startDiscovery();
             } else {
-                Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "需要蓝牙和位置权限才能扫描设备", Toast.LENGTH_SHORT).show();
             }
         }
     }

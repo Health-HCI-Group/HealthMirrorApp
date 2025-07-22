@@ -1,142 +1,175 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="健康镜蓝牙通信"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Status: Ready"
-        android:textSize="16sp"
-        android:background="#f0f0f0"
-        android:padding="8dp"
-        android:layout_marginBottom="8dp" />
+    android:background="#FAFAFA">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:orientation="vertical"
+        android:padding="20dp">
 
-        <Button
-            android:id="@+id/scanButton"
-            android:layout_width="0dp"
+        <!-- 标题 -->
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="扫描设备"
-            android:layout_marginEnd="4dp" />
+            android:text="健康镜蓝牙通信"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:textColor="#333"
+            android:gravity="center"
+            android:layout_marginBottom="20dp" />
 
-        <Button
-            android:id="@+id/connectButton"
-            android:layout_width="0dp"
+        <!-- 状态栏 -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="连接设备"
-            android:layout_marginStart="4dp" />
+            android:text="Status: Ready"
+            android:textSize="16sp"
+            android:padding="12dp"
+            android:textColor="#222"
+            android:background="#E0F7FA"
+            android:layout_marginBottom="12dp"
+            android:elevation="2dp" />
 
+        <!-- 蓝牙控制按钮 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <Button
+                android:id="@+id/scanButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="扫描设备"
+                android:backgroundTint="#2196F3"
+                android:textColor="#fff"
+                android:layout_marginEnd="6dp" />
+
+            <Button
+                android:id="@+id/connectButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="连接设备"
+                android:backgroundTint="#03A9F4"
+                android:textColor="#fff"
+                android:layout_marginStart="6dp" />
+        </LinearLayout>
+
+        <!-- 设备列表 -->
+        <ListView
+            android:id="@+id/deviceListView"
+            android:layout_width="match_parent"
+            android:layout_height="150dp"
+            android:background="#FFFFFF"
+            android:divider="#ddd"
+            android:dividerHeight="1dp"
+            android:elevation="1dp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 患者信息 -->
+        <EditText
+            android:id="@+id/patientInfoEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="患者信息 (例: 房颤、高血压)"
+            android:padding="12dp"
+            android:background="@android:drawable/editbox_background"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 功能按钮组 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <Button
+                android:id="@+id/syncTimeButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="时间同步"
+                android:layout_marginEnd="4dp"
+                android:backgroundTint="#FF9800"
+                android:textColor="#fff" />
+
+            <Button
+                android:id="@+id/refreshInfoButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="刷新信息"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:backgroundTint="#607D8B"
+                android:textColor="#fff" />
+
+            <Button
+                android:id="@+id/configWifiButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="配置网络"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#673AB7"
+                android:textColor="#fff" />
+        </LinearLayout>
+
+        <!-- 采集控制 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <Button
+                android:id="@+id/startCaptureButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="开始采集"
+                android:layout_marginEnd="6dp"
+                android:backgroundTint="#4CAF50"
+                android:textColor="#fff" />
+
+            <Button
+                android:id="@+id/stopCaptureButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="停止采集"
+                android:layout_marginStart="6dp"
+                android:backgroundTint="#F44336"
+                android:textColor="#fff" />
+        </LinearLayout>
+
+        <!-- 设备信息标题 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="设备信息:"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#333"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 设备信息内容 -->
+        <TextView
+            android:id="@+id/deviceInfoText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="100dp"
+            android:background="#F1F8E9"
+            android:padding="12dp"
+            android:text="暂无设备信息"
+            android:textSize="14sp"
+            android:textColor="#444" />
     </LinearLayout>
-
-    <ListView
-        android:id="@+id/deviceListView"
-        android:layout_width="match_parent"
-        android:layout_height="120dp"
-        android:background="#f8f8f8"
-        android:layout_marginBottom="16dp" />
-
-    <EditText
-        android:id="@+id/patientInfoEdit"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="患者信息 (例: 房颤、高血压)"
-        android:layout_marginBottom="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
-
-        <Button
-            android:id="@+id/syncTimeButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="时间同步"
-            android:layout_marginEnd="2dp" />
-
-        <Button
-            android:id="@+id/refreshInfoButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="刷新信息"
-            android:layout_marginStart="2dp"
-            android:layout_marginEnd="2dp" />
-
-        <Button
-            android:id="@+id/configWifiButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="配置网络"
-            android:layout_marginStart="2dp" />
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="16dp">
-
-        <Button
-            android:id="@+id/startCaptureButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="开始采集"
-            android:background="#4CAF50"
-            android:layout_marginEnd="4dp" />
-
-        <Button
-            android:id="@+id/stopCaptureButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="停止采集"
-            android:background="#f44336"
-            android:layout_marginStart="4dp" />
-
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="设备信息:"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
-
-    <TextView
-        android:id="@+id/deviceInfoText"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:text="暂无设备信息"
-        android:background="#f8f8f8"
-        android:padding="8dp"
-        android:textSize="14sp" />
-
-</LinearLayout>
+</ScrollView>
