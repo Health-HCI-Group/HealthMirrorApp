@@ -44,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_ENABLE_BT = 1;
     private static final int REQUEST_BLUETOOTH_PERMISSION = 2;
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    private static final int REQUEST_BLUETOOTH_CONNECT = 100;
 
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket bluetoothSocket;
@@ -111,7 +112,12 @@ public class MainActivity extends AppCompatActivity {
             finish();
             return;
         }
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQUEST_BLUETOOTH_CONNECT);
+                return; // Wait for permission result
+            }
+        }
         if (!bluetoothAdapter.isEnabled()) {
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -446,7 +452,6 @@ public class MainActivity extends AppCompatActivity {
                         wifiData.put("ssid", ssid);
                         wifiData.put("auth", auth);
 
-                        // 只有在 auth 不为 OPEN 或 WPA2_PSK 时才包含 username
                         if (!auth.equals("OPEN") && !auth.equals("WPA2_PSK")) {
                             wifiData.put("username", username);
                         }
