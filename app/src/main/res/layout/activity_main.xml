@@ -74,14 +74,173 @@
             android:layout_marginBottom="16dp" />
 
         <!-- 患者信息 -->
-        <EditText
-            android:id="@+id/patientInfoEdit"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="患者信息 (例: 房颤、高血压)"
-            android:padding="12dp"
-            android:background="@android:drawable/editbox_background"
-            android:layout_marginBottom="16dp" />
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="患者信息"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <EditText
+                android:id="@+id/patientIdEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="患者ID"
+                android:inputType="number"
+                android:padding="12dp"
+                android:layout_marginBottom="8dp"
+                android:background="@android:drawable/editbox_background"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="健康指标"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
+                <!-- 血压 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/bloodPressureSystolic"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="收缩压(mmHg)"
+                        android:inputType="number"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="/"
+                        android:textSize="18sp"
+                        android:padding="8dp"/>
+
+                    <EditText
+                        android:id="@+id/bloodPressureDiastolic"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="舒张压(mmHg)"
+                        android:inputType="number"/>
+                </LinearLayout>
+
+                <!-- 心率 -->
+                <EditText
+                    android:id="@+id/heartRate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="心率(bpm)"
+                    android:inputType="number"
+                    android:layout_marginTop="8dp"/>
+
+                <!-- 体温 -->
+                <EditText
+                    android:id="@+id/bodyTemp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="体温(℃)"
+                    android:inputType="numberDecimal"
+                    android:layout_marginTop="8dp"/>
+
+                <!-- 血氧 -->
+                <EditText
+                    android:id="@+id/bloodOxygen"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="血氧饱和度(%)"
+                    android:inputType="number"
+                    android:layout_marginTop="8dp"/>
+
+                <!-- 自定义备注 -->
+                <EditText
+                    android:id="@+id/medicalNotes"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="医生备注"
+                    android:layout_marginTop="8dp"/>
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/patientCustomInfoEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="自定义信息"
+                android:padding="12dp"
+                android:background="@android:drawable/editbox_background"/>
+        </LinearLayout>
+
+        <!-- 采集控制 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <Button
+                android:id="@+id/startCaptureButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="开始采集"
+                android:layout_marginEnd="6dp"
+                android:backgroundTint="#4CAF50"
+                android:textColor="#fff" />
+
+            <Button
+                android:id="@+id/stopCaptureButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="停止采集"
+                android:layout_marginStart="6dp"
+                android:backgroundTint="#F44336"
+                android:textColor="#fff"
+                android:enabled="false"/>
+        </LinearLayout>
+
+        <!-- 采集进度 -->
+        <LinearLayout
+            android:id="@+id/TimeBar"
+
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/captureProgressBar"
+
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/captureTimeText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textSize="14sp"
+                android:gravity="center"/>
+        </LinearLayout>
 
         <!-- 功能按钮组 -->
         <LinearLayout
@@ -122,33 +281,15 @@
                 android:textColor="#fff" />
         </LinearLayout>
 
-        <!-- 采集控制 -->
-        <LinearLayout
+        <!-- 拍照按钮 -->
+        <Button
+            android:id="@+id/capturePhotoButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
-
-            <Button
-                android:id="@+id/startCaptureButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="开始采集"
-                android:layout_marginEnd="6dp"
-                android:backgroundTint="#4CAF50"
-                android:textColor="#fff" />
-
-            <Button
-                android:id="@+id/stopCaptureButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="停止采集"
-                android:layout_marginStart="6dp"
-                android:backgroundTint="#F44336"
-                android:textColor="#fff" />
-        </LinearLayout>
+            android:text="拍照上传"
+            android:layout_marginBottom="16dp"
+            android:backgroundTint="#9C27B0"
+            android:textColor="#fff"/>
 
         <!-- 设备信息标题 -->
         <TextView

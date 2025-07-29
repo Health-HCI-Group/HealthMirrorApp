@@ -10,34 +10,58 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.text.InputType;
+import android.util.Base64;
 import android.util.Log;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.FileProvider;
 
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.Locale;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.JSchException;
+import com.jcraft.jsch.Session;
+import com.jcraft.jsch.SftpException;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "HealthMirror";
@@ -45,6 +69,15 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_BLUETOOTH_PERMISSION = 2;
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private static final int REQUEST_BLUETOOTH_CONNECT = 100;
+    private static final int REQUEST_IMAGE_CAPTURE = 101;
+    private static final int REQUEST_CAMERA_PERMISSION = 102;
+    private static final int REQUEST_STORAGE_PERMISSION = 103;
+
+    // 服务器配置
+    private static final String SERVER_IP = "47.93.46.224";
+    private static final String SSH_USERNAME = "healthmirror";
+    private static final String SSH_PASSWORD = "healthmirror1234!";
+    private static final String REMOTE_PATH = "/uploads/";
 
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket bluetoothSocket;
@@ -53,6 +86,10 @@ public class MainActivity extends AppCompatActivity {
     private OutputStream outputStream;
     private Thread readThread;
     private boolean isConnected = false;
+    private boolean isCapturing = false;
+    private int remainingCaptureTime = 0; // 剩余采集时间(秒)
+    private Handler captureHandler = new Handler();
+    private Runnable captureTimer;
 
     private ListView deviceListView;
     private ArrayAdapter<String> deviceAdapter;
@@ -60,12 +97,16 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<BluetoothDevice> bluetoothDeviceList;
 
     private TextView statusText, deviceInfoText;
-    private EditText patientInfoEdit;
+    private EditText patientIdEdit, patientHealthIndexEdit, patientCustomInfoEdit;
     private Button scanButton, connectButton, syncTimeButton;
     private Button startCaptureButton, stopCaptureButton, refreshInfoButton;
-    private Button configWifiButton;
+    private Button configWifiButton, capturePhotoButton;
+    private ProgressBar captureProgressBar;
+    private TextView captureTimeText;
 
     private Handler mainHandler;
+    private ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private String currentPhotoPath;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,8 +130,8 @@ public class MainActivity extends AppCompatActivity {
         deviceListView = findViewById(R.id.deviceListView);
         statusText = findViewById(R.id.statusText);
         deviceInfoText = findViewById(R.id.deviceInfoText);
-        patientInfoEdit = findViewById(R.id.patientInfoEdit);
-
+        patientIdEdit = findViewById(R.id.patientIdEdit);
+        patientCustomInfoEdit = findViewById(R.id.patientCustomInfoEdit);
         scanButton = findViewById(R.id.scanButton);
         connectButton = findViewById(R.id.connectButton);
         syncTimeButton = findViewById(R.id.syncTimeButton);
@@ -98,11 +139,14 @@ public class MainActivity extends AppCompatActivity {
         stopCaptureButton = findViewById(R.id.stopCaptureButton);
         refreshInfoButton = findViewById(R.id.refreshInfoButton);
         configWifiButton = findViewById(R.id.configWifiButton);
+        capturePhotoButton = findViewById(R.id.capturePhotoButton);
 
         deviceList = new ArrayList<>();
         bluetoothDeviceList = new ArrayList<>();
         deviceAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, deviceList);
         deviceListView.setAdapter(deviceAdapter);
+        captureProgressBar = findViewById(R.id.captureProgressBar);
+        captureTimeText = findViewById(R.id.captureTimeText);
     }
 
     private void initBluetooth() {
@@ -145,10 +189,11 @@ public class MainActivity extends AppCompatActivity {
         scanButton.setOnClickListener(v -> startDiscovery());
         connectButton.setOnClickListener(v -> connectToDevice());
         syncTimeButton.setOnClickListener(v -> syncTime());
-        startCaptureButton.setOnClickListener(v -> startCapture());
+        startCaptureButton.setOnClickListener(v -> showCaptureDurationDialog());
         stopCaptureButton.setOnClickListener(v -> stopCapture());
         refreshInfoButton.setOnClickListener(v -> refreshInfo());
         configWifiButton.setOnClickListener(v -> configWifi());
+        capturePhotoButton.setOnClickListener(v -> dispatchTakePictureIntent());
 
         deviceListView.setOnItemClickListener((parent, view, position, id) -> {
             if (position < bluetoothDeviceList.size()) {
@@ -156,6 +201,178 @@ public class MainActivity extends AppCompatActivity {
                 statusText.setText("Selected: " + connectedDevice.getName());
             }
         });
+    }
+    private void showCaptureDurationDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("设置采集时长");
+
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint("输入采集时长(秒)");
+        builder.setView(input);
+
+        builder.setPositiveButton("确定", (dialog, which) -> {
+            try {
+                int duration = Integer.parseInt(input.getText().toString());
+                if (duration > 0) {
+                    startCaptureWithDuration(duration);
+                } else {
+                    Toast.makeText(this, "请输入有效的采集时长", Toast.LENGTH_SHORT).show();
+                }
+            } catch (NumberFormatException e) {
+                Toast.makeText(this, "请输入有效的数字", Toast.LENGTH_SHORT).show();
+            }
+        });
+        builder.setNegativeButton("取消", null);
+        builder.show();
+    }
+    // 在startCaptureWithDuration方法中替换健康指标收集部分：
+    private void startCaptureWithDuration(int durationSeconds) {
+        // 获取基础患者信息
+        String patientId = patientIdEdit.getText().toString().trim();
+
+        // 获取健康指标
+        String bpSystolic = ((EditText)findViewById(R.id.bloodPressureSystolic)).getText().toString();
+        String bpDiastolic = ((EditText)findViewById(R.id.bloodPressureDiastolic)).getText().toString();
+        String heartRate = ((EditText)findViewById(R.id.heartRate)).getText().toString();
+        String bodyTemp = ((EditText)findViewById(R.id.bodyTemp)).getText().toString();
+        String bloodOxygen = ((EditText)findViewById(R.id.bloodOxygen)).getText().toString();
+        String medicalNotes = ((EditText)findViewById(R.id.medicalNotes)).getText().toString();
+
+        // 构建结构化健康数据
+        JSONObject healthData = new JSONObject();
+        try {
+            // 基础信息
+            if(!patientId.isEmpty()) healthData.put("patient_id", patientId);
+
+            // 生命体征
+            JSONObject vitals = new JSONObject();
+            if(!bpSystolic.isEmpty() && !bpDiastolic.isEmpty()) {
+                vitals.put("blood_pressure", bpSystolic + "/" + bpDiastolic);
+            }
+            if(!heartRate.isEmpty()) vitals.put("heart_rate", heartRate + "bpm");
+            if(!bodyTemp.isEmpty()) vitals.put("temperature", bodyTemp + "℃");
+            if(!bloodOxygen.isEmpty()) vitals.put("blood_oxygen", bloodOxygen + "%");
+
+            healthData.put("vitals", vitals);
+            if(!medicalNotes.isEmpty()) healthData.put("notes", medicalNotes);
+
+            // 发送数据
+            JSONObject command = new JSONObject();
+            command.put("start_capture", new JSONObject()
+                    .put("patient_info", healthData.toString())
+                    .put("duration", durationSeconds)
+                    .put("time", System.currentTimeMillis() / 1000.0));
+
+            sendCommand(command);
+            startCaptureTimer(durationSeconds);
+        } catch (JSONException e) {
+            Log.e(TAG, "健康数据构建失败", e);
+            Toast.makeText(this, "健康数据格式错误", Toast.LENGTH_SHORT).show();
+        }
+    }
+    private void startCaptureTimer(int totalSeconds) {
+        isCapturing = true;
+        remainingCaptureTime = totalSeconds;
+        LinearLayout timeBar = findViewById(R.id.TimeBar);
+        timeBar.setVisibility(View.VISIBLE);
+        // 显示进度条
+        captureProgressBar.setMax(totalSeconds);
+        captureProgressBar.setProgress(totalSeconds);
+        captureProgressBar.setVisibility(View.VISIBLE);
+        captureTimeText.setVisibility(View.VISIBLE);
+        captureTimeText.setText(formatTime(remainingCaptureTime));
+
+        // 禁用开始按钮，启用停止按钮
+        startCaptureButton.setEnabled(false);
+        stopCaptureButton.setEnabled(true);
+
+        captureTimer = new Runnable() {
+            @Override
+            public void run() {
+                remainingCaptureTime--;
+                captureProgressBar.setProgress(remainingCaptureTime);
+                captureTimeText.setText(formatTime(remainingCaptureTime));
+
+                if (remainingCaptureTime <= 0) {
+                    stopCapture();
+                } else {
+                    captureHandler.postDelayed(this, 1000);
+                }
+            }
+        };
+
+        captureHandler.postDelayed(captureTimer, 1000);
+    }
+    protected void stopCapture() {
+            try {
+                JSONObject command = new JSONObject();
+                JSONObject stopData = new JSONObject();
+                stopData.put("time", System.currentTimeMillis() / 1000.0);
+                command.put("stop_capture", stopData);
+
+                sendCommand(command);
+            } catch (JSONException e) {
+                Log.e(TAG, "Error creating stop capture command", e);
+            }
+
+        // 停止计时器
+        if (captureTimer != null) {
+            captureHandler.removeCallbacks(captureTimer);
+        }
+
+        isCapturing = false;
+        captureProgressBar.setVisibility(View.GONE);
+        captureTimeText.setVisibility(View.GONE);
+
+        // 恢复按钮状态
+        startCaptureButton.setEnabled(true);
+        stopCaptureButton.setEnabled(false);
+    }
+    // 格式化时间为 MM:SS
+    private String formatTime(int seconds) {
+        int minutes = seconds / 60;
+        int secs = seconds % 60;
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes, secs);
+    }
+    private void dispatchTakePictureIntent() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, REQUEST_CAMERA_PERMISSION);
+            return;
+        }
+
+        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
+            File photoFile = createImageFile();
+            if (photoFile != null) {
+                Uri photoURI = FileProvider.getUriForFile(this,
+                        "com.tsinghua.healthmirror.fileprovider",
+                        photoFile);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
+                startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
+            }
+        }
+    }
+    private File createImageFile() {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File image = null;
+        try {
+            image = File.createTempFile(
+                    imageFileName,  /* prefix */
+                    ".jpg",         /* suffix */
+                    storageDir      /* directory */
+            );
+            currentPhotoPath = image.getAbsolutePath();
+        } catch (IOException e) {
+            Log.e(TAG, "Error creating image file", e);
+        }
+        return image;
     }
 
     private void loadPairedDevices() {
@@ -335,10 +552,10 @@ public class MainActivity extends AppCompatActivity {
 
                 mainHandler.post(() -> statusText.setText("Sent: " + commandStr));
 
-            } catch (IOException e) {
-                Log.e(TAG, "Error sending command", e);
-                mainHandler.post(() -> statusText.setText("Send failed: " + e.getMessage()));
-            }
+        } catch (IOException e) {
+            Log.e(TAG, "Error sending command", e);
+            mainHandler.post(() -> statusText.setText("Send failed: " + e.getMessage()));
+        }
         }).start();
     }
 
@@ -369,37 +586,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void startCapture() {
-        String patientInfo = patientInfoEdit.getText().toString().trim();
-        if (patientInfo.isEmpty()) {
-            patientInfo = "未知患者信息";
-        }
-
-        try {
-            JSONObject command = new JSONObject();
-            JSONObject captureData = new JSONObject();
-            captureData.put("patient_info", patientInfo);
-            captureData.put("time", System.currentTimeMillis() / 1000.0);
-            command.put("start_capture", captureData);
-
-            sendCommand(command);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating start capture command", e);
-        }
-    }
-
-    private void stopCapture() {
-        try {
-            JSONObject command = new JSONObject();
-            JSONObject stopData = new JSONObject();
-            stopData.put("time", System.currentTimeMillis() / 1000.0);
-            command.put("stop_capture", stopData);
-
-            sendCommand(command);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating stop capture command", e);
-        }
-    }
 
     private void refreshInfo() {
         try {
@@ -527,5 +713,98 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Bluetooth is required for this app", Toast.LENGTH_SHORT).show();
             }
         }
+        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
+            // 压缩并上传图片
+            executorService.execute(() -> {
+                try {
+                    Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos);
+                    byte[] imageBytes = baos.toByteArray();
+                    String encodedImage = Base64.encodeToString(imageBytes, Base64.DEFAULT);
+
+                    // 上传到服务器
+                    uploadImageToServer(encodedImage);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error processing image", e);
+                    mainHandler.post(() -> Toast.makeText(MainActivity.this,
+                            "图片处理失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                }
+            });
+        }
+    }
+    private void uploadImageToServer(String base64Image) {
+        // 显示上传进度
+        mainHandler.post(() -> {
+            statusText.setText("正在上传图片到服务器...");
+            Toast.makeText(MainActivity.this, "开始上传图片", Toast.LENGTH_SHORT).show();
+        });
+
+        executorService.execute(() -> {
+            JSch jsch = new JSch();
+            Session session = null;
+            ChannelSftp channel = null;
+
+            try {
+                // 1. 创建会话
+                session = jsch.getSession(SSH_USERNAME, SERVER_IP, 22);
+                session.setPassword(SSH_PASSWORD);
+
+                // 避免首次连接时的主机密钥检查
+                Properties config = new Properties();
+                config.put("StrictHostKeyChecking", "no");
+                session.setConfig(config);
+
+                // 2. 连接会话
+                session.connect();
+
+                // 3. 打开SFTP通道
+                channel = (ChannelSftp) session.openChannel("sftp");
+                channel.connect();
+
+                // 4. 创建远程目录(如果不存在)
+                try {
+                    channel.mkdir(REMOTE_PATH);
+                } catch (SftpException e) {
+                    if (e.id != ChannelSftp.SSH_FX_FAILURE) {
+                        throw e;
+                    }
+                    // 目录已存在，忽略错误
+                }
+
+                // 5. 生成唯一文件名
+                String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+                String remoteFileName = "healthmirror_" + timeStamp + ".jpg";
+
+                // 6. 解码Base64并上传
+                byte[] imageData = Base64.decode(base64Image, Base64.DEFAULT);
+                try (InputStream inputStream = new ByteArrayInputStream(imageData)) {
+                    channel.put(inputStream, REMOTE_PATH + remoteFileName);
+
+                    // 7. 上传成功处理
+                    mainHandler.post(() -> {
+                        statusText.setText("图片上传成功: " + remoteFileName);
+                        Toast.makeText(MainActivity.this,
+                                "图片上传成功!", Toast.LENGTH_SHORT).show();
+                    });
+
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error uploading image", e);
+                mainHandler.post(() -> {
+                    statusText.setText("上传失败: " + e.getMessage());
+                    Toast.makeText(MainActivity.this,
+                            "上传失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            } finally {
+                // 9. 关闭连接
+                if (channel != null) {
+                    channel.disconnect();
+                }
+                if (session != null) {
+                    session.disconnect();
+                }
+            }
+        });
     }
 }
