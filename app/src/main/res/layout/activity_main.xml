@@ -10,16 +10,32 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <!-- 标题 -->
-        <TextView
+        <!-- 标题栏 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="健康镜蓝牙通信"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:textColor="#333"
-            android:gravity="center"
-            android:layout_marginBottom="20dp" />
+            android:orientation="horizontal"
+            android:layout_marginBottom="20dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="健康镜蓝牙通信"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:textColor="#333"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/settingsButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:text="⚙"
+                android:textSize="18sp"
+                android:backgroundTint="#607D8B"
+                android:textColor="#fff" />
+        </LinearLayout>
 
         <!-- 状态栏 -->
         <TextView
@@ -98,6 +114,7 @@
                 android:layout_marginBottom="8dp"
                 android:background="@android:drawable/editbox_background"/>
 
+            <!-- 动态健康指标容器 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -111,70 +128,20 @@
                     android:textSize="16sp"
                     android:textStyle="bold"/>
 
-                <!-- 血压 -->
-                <LinearLayout
+                <!-- 动态生成的健康指标输入框将在这里添加 -->
+                <ScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:maxHeight="300dp">
 
-                    <EditText
-                        android:id="@+id/bloodPressureSystolic"
-                        android:layout_width="0dp"
+                    <LinearLayout
+                        android:id="@+id/healthIndicatorsContainer"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:hint="收缩压(mmHg)"
-                        android:inputType="number"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="/"
-                        android:textSize="18sp"
-                        android:padding="8dp"/>
-
-                    <EditText
-                        android:id="@+id/bloodPressureDiastolic"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:hint="舒张压(mmHg)"
-                        android:inputType="number"/>
-                </LinearLayout>
-
-                <!-- 心率 -->
-                <EditText
-                    android:id="@+id/heartRate"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="心率(bpm)"
-                    android:inputType="number"
-                    android:layout_marginTop="8dp"/>
-
-                <!-- 体温 -->
-                <EditText
-                    android:id="@+id/bodyTemp"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="体温(℃)"
-                    android:inputType="numberDecimal"
-                    android:layout_marginTop="8dp"/>
-
-                <!-- 血氧 -->
-                <EditText
-                    android:id="@+id/bloodOxygen"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="血氧饱和度(%)"
-                    android:inputType="number"
-                    android:layout_marginTop="8dp"/>
-
-                <!-- 自定义备注 -->
-                <EditText
-                    android:id="@+id/medicalNotes"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="医生备注"
-                    android:layout_marginTop="8dp"/>
+                        android:orientation="vertical">
+                        <!-- 健康指标输入框将动态添加到这里 -->
+                    </LinearLayout>
+                </ScrollView>
             </LinearLayout>
 
             <EditText
@@ -218,7 +185,6 @@
         <!-- 采集进度 -->
         <LinearLayout
             android:id="@+id/TimeBar"
-
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -227,7 +193,6 @@
 
             <ProgressBar
                 android:id="@+id/captureProgressBar"
-
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

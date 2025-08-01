@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -20,6 +21,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
 import android.view.View;
@@ -37,7 +39,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.FileProvider;
 
-
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -51,7 +52,10 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -87,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private Thread readThread;
     private boolean isConnected = false;
     private boolean isCapturing = false;
-    private int remainingCaptureTime = 0; // 剩余采集时间(秒)
+    private int remainingCaptureTime = 0;
     private Handler captureHandler = new Handler();
     private Runnable captureTimer;
 
@@ -97,16 +101,19 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<BluetoothDevice> bluetoothDeviceList;
 
     private TextView statusText, deviceInfoText;
-    private EditText patientIdEdit, patientHealthIndexEdit, patientCustomInfoEdit;
+    private EditText patientIdEdit, patientCustomInfoEdit;
     private Button scanButton, connectButton, syncTimeButton;
     private Button startCaptureButton, stopCaptureButton, refreshInfoButton;
-    private Button configWifiButton, capturePhotoButton;
+    private Button configWifiButton, capturePhotoButton, settingsButton;
     private ProgressBar captureProgressBar;
     private TextView captureTimeText;
+    private LinearLayout healthIndicatorsContainer;
 
     private Handler mainHandler;
     private ExecutorService executorService = Executors.newSingleThreadExecutor();
     private String currentPhotoPath;
+    private SharedPreferences prefs;
+    private Map<String, EditText> healthInputs; // 存储动态生成的健康指标输入框
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -118,12 +125,22 @@ public class MainActivity extends AppCompatActivity {
         setupListeners();
 
         mainHandler = new Handler(Looper.getMainLooper());
+        prefs = getSharedPreferences("HealthMirrorSettings", MODE_PRIVATE);
+        healthInputs = new HashMap<>();
+        createHealthIndicators();
 
         // Register for broadcasts when a device is discovered
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothDevice.ACTION_FOUND);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
         registerReceiver(discoveryReceiver, filter);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 每次返回主界面时重新创建健康指标输入框，以反映设置的变化
+        createHealthIndicators();
     }
 
     private void initViews() {
@@ -140,6 +157,8 @@ public class MainActivity extends AppCompatActivity {
         refreshInfoButton = findViewById(R.id.refreshInfoButton);
         configWifiButton = findViewById(R.id.configWifiButton);
         capturePhotoButton = findViewById(R.id.capturePhotoButton);
+        settingsButton = findViewById(R.id.settingsButton);
+        healthIndicatorsContainer = findViewById(R.id.healthIndicatorsContainer);
 
         deviceList = new ArrayList<>();
         bluetoothDeviceList = new ArrayList<>();
@@ -147,6 +166,103 @@ public class MainActivity extends AppCompatActivity {
         deviceListView.setAdapter(deviceAdapter);
         captureProgressBar = findViewById(R.id.captureProgressBar);
         captureTimeText = findViewById(R.id.captureTimeText);
+    }
+
+    private void createHealthIndicators() {
+        if (healthIndicatorsContainer == null) return;
+
+        // 清除现有的输入框
+        healthIndicatorsContainer.removeAllViews();
+        healthInputs.clear();
+
+        // 获取所有健康指标标签
+        List<SettingsActivity.HealthTag> allTags = SettingsActivity.getAllTags(prefs);
+
+        for (SettingsActivity.HealthTag tag : allTags) {
+            // 为血压创建特殊的双输入框布局
+            if ("bloodPressureSystolic".equals(tag.key)) {
+                createBloodPressureInputs(allTags);
+                continue;
+            } else if ("bloodPressureDiastolic".equals(tag.key)) {
+                // 舒张压已在收缩压中处理，跳过
+                continue;
+            }
+
+            // 创建普通输入框
+            EditText editText = new EditText(this);
+            editText.setHint(tag.name + (TextUtils.isEmpty(tag.unit) ? "" : "(" + tag.unit + ")"));
+            editText.setPadding(12, 12, 12, 12);
+            editText.setBackground(getResources().getDrawable(android.R.drawable.editbox_background));
+
+            // 设置输入类型
+            if (tag.key.contains("Rate") || tag.key.contains("Oxygen") || tag.key.contains("pressure")) {
+                editText.setInputType(InputType.TYPE_CLASS_NUMBER);
+            } else if (tag.key.contains("Temp")) {
+                editText.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            } else {
+                editText.setInputType(InputType.TYPE_CLASS_TEXT);
+            }
+
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            params.topMargin = 8;
+            editText.setLayoutParams(params);
+
+            healthIndicatorsContainer.addView(editText);
+            healthInputs.put(tag.key, editText);
+        }
+    }
+
+    private void createBloodPressureInputs(List<SettingsActivity.HealthTag> allTags) {
+        // 创建血压输入框的容器
+        LinearLayout bpContainer = new LinearLayout(this);
+        bpContainer.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        containerParams.topMargin = 8;
+        bpContainer.setLayoutParams(containerParams);
+
+        // 收缩压输入框
+        EditText systolicEdit = new EditText(this);
+        systolicEdit.setHint("收缩压(mmHg)");
+        systolicEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        systolicEdit.setPadding(12, 12, 12, 12);
+        systolicEdit.setBackground(getResources().getDrawable(android.R.drawable.editbox_background));
+        LinearLayout.LayoutParams systolicParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f
+        );
+        systolicEdit.setLayoutParams(systolicParams);
+
+        // 分隔符
+        TextView separator = new TextView(this);
+        separator.setText("/");
+        separator.setTextSize(18);
+        separator.setPadding(8, 8, 8, 8);
+
+        // 舒张压输入框
+        EditText diastolicEdit = new EditText(this);
+        diastolicEdit.setHint("舒张压(mmHg)");
+        diastolicEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        diastolicEdit.setPadding(12, 12, 12, 12);
+        diastolicEdit.setBackground(getResources().getDrawable(android.R.drawable.editbox_background));
+        LinearLayout.LayoutParams diastolicParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f
+        );
+        diastolicEdit.setLayoutParams(diastolicParams);
+
+        bpContainer.addView(systolicEdit);
+        bpContainer.addView(separator);
+        bpContainer.addView(diastolicEdit);
+
+        healthIndicatorsContainer.addView(bpContainer);
+
+        // 存储到输入框映射中
+        healthInputs.put("bloodPressureSystolic", systolicEdit);
+        healthInputs.put("bloodPressureDiastolic", diastolicEdit);
     }
 
     private void initBluetooth() {
@@ -159,7 +275,7 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQUEST_BLUETOOTH_CONNECT);
-                return; // Wait for permission result
+                return;
             }
         }
         if (!bluetoothAdapter.isEnabled()) {
@@ -189,11 +305,12 @@ public class MainActivity extends AppCompatActivity {
         scanButton.setOnClickListener(v -> startDiscovery());
         connectButton.setOnClickListener(v -> connectToDevice());
         syncTimeButton.setOnClickListener(v -> syncTime());
-        startCaptureButton.setOnClickListener(v -> showCaptureDurationDialog());
+        startCaptureButton.setOnClickListener(v -> startCaptureWithDefaultDuration());
         stopCaptureButton.setOnClickListener(v -> stopCapture());
         refreshInfoButton.setOnClickListener(v -> refreshInfo());
         configWifiButton.setOnClickListener(v -> configWifi());
         capturePhotoButton.setOnClickListener(v -> dispatchTakePictureIntent());
+        settingsButton.setOnClickListener(v -> openSettings());
 
         deviceListView.setOnItemClickListener((parent, view, position, id) -> {
             if (position < bluetoothDeviceList.size()) {
@@ -202,42 +319,20 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-    private void showCaptureDurationDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("设置采集时长");
 
-        final EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        input.setHint("输入采集时长(秒)");
-        builder.setView(input);
-
-        builder.setPositiveButton("确定", (dialog, which) -> {
-            try {
-                int duration = Integer.parseInt(input.getText().toString());
-                if (duration > 0) {
-                    startCaptureWithDuration(duration);
-                } else {
-                    Toast.makeText(this, "请输入有效的采集时长", Toast.LENGTH_SHORT).show();
-                }
-            } catch (NumberFormatException e) {
-                Toast.makeText(this, "请输入有效的数字", Toast.LENGTH_SHORT).show();
-            }
-        });
-        builder.setNegativeButton("取消", null);
-        builder.show();
+    private void openSettings() {
+        Intent intent = new Intent(this, SettingsActivity.class);
+        startActivity(intent);
     }
-    // 在startCaptureWithDuration方法中替换健康指标收集部分：
+
+    private void startCaptureWithDefaultDuration() {
+        int defaultDuration = SettingsActivity.getDefaultCaptureDuration(prefs);
+        startCaptureWithDuration(defaultDuration);
+    }
+
     private void startCaptureWithDuration(int durationSeconds) {
         // 获取基础患者信息
         String patientId = patientIdEdit.getText().toString().trim();
-
-        // 获取健康指标
-        String bpSystolic = ((EditText)findViewById(R.id.bloodPressureSystolic)).getText().toString();
-        String bpDiastolic = ((EditText)findViewById(R.id.bloodPressureDiastolic)).getText().toString();
-        String heartRate = ((EditText)findViewById(R.id.heartRate)).getText().toString();
-        String bodyTemp = ((EditText)findViewById(R.id.bodyTemp)).getText().toString();
-        String bloodOxygen = ((EditText)findViewById(R.id.bloodOxygen)).getText().toString();
-        String medicalNotes = ((EditText)findViewById(R.id.medicalNotes)).getText().toString();
 
         // 构建结构化健康数据
         JSONObject healthData = new JSONObject();
@@ -247,15 +342,47 @@ public class MainActivity extends AppCompatActivity {
 
             // 生命体征
             JSONObject vitals = new JSONObject();
-            if(!bpSystolic.isEmpty() && !bpDiastolic.isEmpty()) {
-                vitals.put("blood_pressure", bpSystolic + "/" + bpDiastolic);
+
+            // 遍历所有健康指标输入框
+            for (Map.Entry<String, EditText> entry : healthInputs.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue().getText().toString().trim();
+
+                if (!value.isEmpty()) {
+                    switch (key) {
+                        case "bloodPressureSystolic":
+                            String diastolic = "";
+                            if (healthInputs.containsKey("bloodPressureDiastolic")) {
+                                diastolic = healthInputs.get("bloodPressureDiastolic").getText().toString().trim();
+                            }
+                            if (!diastolic.isEmpty()) {
+                                vitals.put("blood_pressure", value + "/" + diastolic);
+                            }
+                            break;
+                        case "bloodPressureDiastolic":
+                            // 已在收缩压中处理
+                            break;
+                        case "heartRate":
+                            vitals.put("heart_rate", value + "bpm");
+                            break;
+                        case "bodyTemp":
+                            vitals.put("temperature", value + "℃");
+                            break;
+                        case "bloodOxygen":
+                            vitals.put("blood_oxygen", value + "%");
+                            break;
+                        case "medicalNotes":
+                            healthData.put("notes", value);
+                            break;
+                        default:
+                            // 自定义指标
+                            vitals.put(key, value);
+                            break;
+                    }
+                }
             }
-            if(!heartRate.isEmpty()) vitals.put("heart_rate", heartRate + "bpm");
-            if(!bodyTemp.isEmpty()) vitals.put("temperature", bodyTemp + "℃");
-            if(!bloodOxygen.isEmpty()) vitals.put("blood_oxygen", bloodOxygen + "%");
 
             healthData.put("vitals", vitals);
-            if(!medicalNotes.isEmpty()) healthData.put("notes", medicalNotes);
 
             // 发送数据
             JSONObject command = new JSONObject();
@@ -271,19 +398,19 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "健康数据格式错误", Toast.LENGTH_SHORT).show();
         }
     }
+
     private void startCaptureTimer(int totalSeconds) {
         isCapturing = true;
         remainingCaptureTime = totalSeconds;
         LinearLayout timeBar = findViewById(R.id.TimeBar);
         timeBar.setVisibility(View.VISIBLE);
-        // 显示进度条
+
         captureProgressBar.setMax(totalSeconds);
         captureProgressBar.setProgress(totalSeconds);
         captureProgressBar.setVisibility(View.VISIBLE);
         captureTimeText.setVisibility(View.VISIBLE);
         captureTimeText.setText(formatTime(remainingCaptureTime));
 
-        // 禁用开始按钮，启用停止按钮
         startCaptureButton.setEnabled(false);
         stopCaptureButton.setEnabled(true);
 
@@ -304,19 +431,19 @@ public class MainActivity extends AppCompatActivity {
 
         captureHandler.postDelayed(captureTimer, 1000);
     }
+
     protected void stopCapture() {
-            try {
-                JSONObject command = new JSONObject();
-                JSONObject stopData = new JSONObject();
-                stopData.put("time", System.currentTimeMillis() / 1000.0);
-                command.put("stop_capture", stopData);
+        try {
+            JSONObject command = new JSONObject();
+            JSONObject stopData = new JSONObject();
+            stopData.put("time", System.currentTimeMillis() / 1000.0);
+            command.put("stop_capture", stopData);
 
-                sendCommand(command);
-            } catch (JSONException e) {
-                Log.e(TAG, "Error creating stop capture command", e);
-            }
+            sendCommand(command);
+        } catch (JSONException e) {
+            Log.e(TAG, "Error creating stop capture command", e);
+        }
 
-        // 停止计时器
         if (captureTimer != null) {
             captureHandler.removeCallbacks(captureTimer);
         }
@@ -325,16 +452,16 @@ public class MainActivity extends AppCompatActivity {
         captureProgressBar.setVisibility(View.GONE);
         captureTimeText.setVisibility(View.GONE);
 
-        // 恢复按钮状态
         startCaptureButton.setEnabled(true);
         stopCaptureButton.setEnabled(false);
     }
-    // 格式化时间为 MM:SS
+
     private String formatTime(int seconds) {
         int minutes = seconds / 60;
         int secs = seconds % 60;
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, secs);
     }
+
     private void dispatchTakePictureIntent() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
                 checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -357,6 +484,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
     private File createImageFile() {
         String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
         String imageFileName = "JPEG_" + timeStamp + "_";
@@ -364,9 +492,9 @@ public class MainActivity extends AppCompatActivity {
         File image = null;
         try {
             image = File.createTempFile(
-                    imageFileName,  /* prefix */
-                    ".jpg",         /* suffix */
-                    storageDir      /* directory */
+                    imageFileName,
+                    ".jpg",
+                    storageDir
             );
             currentPhotoPath = image.getAbsolutePath();
         } catch (IOException e) {
@@ -376,8 +504,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadPairedDevices() {
-
-
         Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
         deviceList.clear();
         bluetoothDeviceList.clear();
@@ -393,7 +519,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startDiscovery() {
-        // 检查并请求所有必要权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{
@@ -552,10 +677,10 @@ public class MainActivity extends AppCompatActivity {
 
                 mainHandler.post(() -> statusText.setText("Sent: " + commandStr));
 
-        } catch (IOException e) {
-            Log.e(TAG, "Error sending command", e);
-            mainHandler.post(() -> statusText.setText("Send failed: " + e.getMessage()));
-        }
+            } catch (IOException e) {
+                Log.e(TAG, "Error sending command", e);
+                mainHandler.post(() -> statusText.setText("Send failed: " + e.getMessage()));
+            }
         }).start();
     }
 
@@ -575,7 +700,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void syncTime() {
         try {
-
             JSONObject command = new JSONObject();
             JSONObject timeData = new JSONObject();
             timeData.put("time", System.currentTimeMillis() / 1000.0);
@@ -585,7 +709,6 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "Error creating sync time command", e);
         }
     }
-
 
     private void refreshInfo() {
         try {
@@ -661,7 +784,6 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -733,8 +855,10 @@ public class MainActivity extends AppCompatActivity {
             });
         }
     }
+
     private void uploadImageToServer(String base64Image) {
         // 显示上传进度
+
         mainHandler.post(() -> {
             statusText.setText("正在上传图片到服务器...");
             Toast.makeText(MainActivity.this, "开始上传图片", Toast.LENGTH_SHORT).show();
@@ -771,11 +895,17 @@ public class MainActivity extends AppCompatActivity {
                     }
                     // 目录已存在，忽略错误
                 }
+                String patientId = patientIdEdit.getText().toString().trim();
 
                 // 5. 生成唯一文件名
                 String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-                String remoteFileName = "healthmirror_" + timeStamp + ".jpg";
+                String remoteFileName;
 
+                if (!TextUtils.isEmpty(patientId)) {
+                    remoteFileName = "patient_" + patientId + "_" + timeStamp + ".jpg";
+                } else {
+                    remoteFileName = "healthmirror_" + timeStamp + ".jpg";
+                }
                 // 6. 解码Base64并上传
                 byte[] imageData = Base64.decode(base64Image, Base64.DEFAULT);
                 try (InputStream inputStream = new ByteArrayInputStream(imageData)) {
