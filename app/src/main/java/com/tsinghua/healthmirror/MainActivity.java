@@ -729,44 +729,105 @@ public class MainActivity extends AppCompatActivity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(50, 40, 50, 10);
 
+        // 网络名输入框
         final EditText ssidInput = new EditText(this);
-        ssidInput.setHint("SSID");
+        ssidInput.setHint("网络名");
         layout.addView(ssidInput);
 
-        final EditText authInput = new EditText(this);
-        authInput.setHint("Auth (OPEN / WPA2_PSK / EAP_PEAP / EAP_TTLS)");
-        layout.addView(authInput);
+        // 认证方式下拉选择
+        TextView authLabel = new TextView(this);
+        authLabel.setText("认证方式:");
+        authLabel.setPadding(0, 20, 0, 10);
+        layout.addView(authLabel);
 
+        // 创建Spinner用于认证方式选择
+        android.widget.Spinner authSpinner = new android.widget.Spinner(this);
+        String[] authOptions = {"开放网络", "WPA2-PSK", "EAP-PEAP", "EAP-TTLS"};
+        String[] authValues = {"OPEN", "WPA2_PSK", "EAP_PEAP", "EAP_TTLS"};
+        ArrayAdapter<String> authAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, authOptions);
+        authAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        authSpinner.setAdapter(authAdapter);
+        layout.addView(authSpinner);
+
+        // 用户名输入框
         final EditText usernameInput = new EditText(this);
-        usernameInput.setHint("Username (if required)");
+        usernameInput.setHint("用户名 (企业网络需要)");
         layout.addView(usernameInput);
 
+        // 密码输入框
         final EditText passwordInput = new EditText(this);
-        passwordInput.setHint("Password");
+        passwordInput.setHint("密码");
         passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         layout.addView(passwordInput);
 
+        // 根据认证方式显示/隐藏用户名输入框
+        authSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                String selectedAuth = authValues[position];
+                // 只有企业网络(EAP_PEAP, EAP_TTLS)需要用户名
+                if ("EAP_PEAP".equals(selectedAuth) || "EAP_TTLS".equals(selectedAuth)) {
+                    usernameInput.setVisibility(View.VISIBLE);
+                } else {
+                    usernameInput.setVisibility(View.GONE);
+                }
+
+                // 开放网络不需要密码
+                if ("OPEN".equals(selectedAuth)) {
+                    passwordInput.setVisibility(View.GONE);
+                } else {
+                    passwordInput.setVisibility(View.VISIBLE);
+                }
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                // 默认显示密码输入框，隐藏用户名输入框
+                usernameInput.setVisibility(View.GONE);
+                passwordInput.setVisibility(View.VISIBLE);
+            }
+        });
+
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Configure WiFi")
+                .setTitle("配置网络")
                 .setView(layout)
-                .setPositiveButton("OK", (dialogInterface, i) -> {
+                .setPositiveButton("确定", (dialogInterface, i) -> {
                     try {
-                        String ssid = ssidInput.getText().toString();
-                        String auth = authInput.getText().toString();
-                        String username = usernameInput.getText().toString();
-                        String password = passwordInput.getText().toString();
+                        String ssid = ssidInput.getText().toString().trim();
+                        String auth = authValues[authSpinner.getSelectedItemPosition()];
+                        String username = usernameInput.getText().toString().trim();
+                        String password = passwordInput.getText().toString().trim();
+
+                        // 验证必填字段
+                        if (TextUtils.isEmpty(ssid)) {
+                            Toast.makeText(MainActivity.this, "请输入网络名", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+
+                        // 非开放网络需要密码
+                        if (!"OPEN".equals(auth) && TextUtils.isEmpty(password)) {
+                            Toast.makeText(MainActivity.this, "请输入密码", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+
+                        // 企业网络需要用户名
+                        if (("EAP_PEAP".equals(auth) || "EAP_TTLS".equals(auth)) && TextUtils.isEmpty(username)) {
+                            Toast.makeText(MainActivity.this, "企业网络需要输入用户名", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
 
                         JSONObject command = new JSONObject();
                         JSONObject wifiData = new JSONObject();
                         wifiData.put("ssid", ssid);
                         wifiData.put("auth", auth);
 
-                        if (!auth.equals("OPEN") && !auth.equals("WPA2_PSK")) {
+                        // 企业网络需要用户名
+                        if ("EAP_PEAP".equals(auth) || "EAP_TTLS".equals(auth)) {
                             wifiData.put("username", username);
                         }
 
-                        // 只要不是 OPEN 都需要密码
-                        if (!auth.equals("OPEN")) {
+                        // 只要不是开放网络都需要密码
+                        if (!"OPEN".equals(auth)) {
                             wifiData.put("password", password);
                         }
 
@@ -774,11 +835,19 @@ public class MainActivity extends AppCompatActivity {
                         command.put("config_wifi", wifiData);
 
                         sendCommand(command);
+
+                        // 显示配置信息
+                        String authName = authOptions[authSpinner.getSelectedItemPosition()];
+                        Toast.makeText(MainActivity.this,
+                                "正在配置网络: " + ssid + " (" + authName + ")",
+                                Toast.LENGTH_SHORT).show();
+
                     } catch (JSONException e) {
                         Log.e(TAG, "Error creating config wifi command", e);
+                        Toast.makeText(MainActivity.this, "配置失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 })
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("取消", null)
                 .create();
 
         dialog.show();
