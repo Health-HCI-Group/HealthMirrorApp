@@ -104,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText patientIdEdit, patientCustomInfoEdit;
     private Button scanButton, connectButton, syncTimeButton;
     private Button startCaptureButton, stopCaptureButton, refreshInfoButton;
+    private Button ttsButton;
     private Button configWifiButton, capturePhotoButton, settingsButton;
     private ProgressBar captureProgressBar;
     private TextView captureTimeText;
@@ -115,6 +116,8 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private Map<String, EditText> healthInputs; // 存储动态生成的健康指标输入框
 
+    private TTSManager ttsManager; // 添加TTS管理器
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -123,6 +126,7 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         initBluetooth();
         setupListeners();
+        ttsManager = TTSManager.getInstance(this);
 
         mainHandler = new Handler(Looper.getMainLooper());
         prefs = getSharedPreferences("HealthMirrorSettings", MODE_PRIVATE);
@@ -154,6 +158,7 @@ public class MainActivity extends AppCompatActivity {
         syncTimeButton = findViewById(R.id.syncTimeButton);
         startCaptureButton = findViewById(R.id.startCaptureButton);
         stopCaptureButton = findViewById(R.id.stopCaptureButton);
+        ttsButton = findViewById(R.id.toggleTtsButton);
         refreshInfoButton = findViewById(R.id.refreshInfoButton);
         configWifiButton = findViewById(R.id.configWifiButton);
         capturePhotoButton = findViewById(R.id.capturePhotoButton);
@@ -177,7 +182,6 @@ public class MainActivity extends AppCompatActivity {
 
         // 获取所有健康指标标签
         List<SettingsActivity.HealthTag> allTags = SettingsActivity.getAllTags(prefs);
-
         for (SettingsActivity.HealthTag tag : allTags) {
             // 为血压创建特殊的双输入框布局
             if ("bloodPressureSystolic".equals(tag.key)) {
@@ -311,7 +315,7 @@ public class MainActivity extends AppCompatActivity {
         configWifiButton.setOnClickListener(v -> configWifi());
         capturePhotoButton.setOnClickListener(v -> dispatchTakePictureIntent());
         settingsButton.setOnClickListener(v -> openSettings());
-
+        ttsButton.setOnClickListener(v-> toggleTTS());
         deviceListView.setOnItemClickListener((parent, view, position, id) -> {
             if (position < bluetoothDeviceList.size()) {
                 connectedDevice = bluetoothDeviceList.get(position);
@@ -374,6 +378,9 @@ public class MainActivity extends AppCompatActivity {
                         case "medicalNotes":
                             healthData.put("notes", value);
                             break;
+                        case "respiratoryRate":
+                            vitals.put("respiratory_rate", value + "bpm");
+                            break;
                         default:
                             // 自定义指标
                             vitals.put(key, value);
@@ -392,7 +399,10 @@ public class MainActivity extends AppCompatActivity {
                     .put("time", System.currentTimeMillis() / 1000.0));
 
             sendCommand(command);
-            startCaptureTimer(durationSeconds);
+            if(isConnected) {
+                ttsManager.showToastWithTTS("开始采集");
+                startCaptureTimer(durationSeconds);
+            }
         } catch (JSONException e) {
             Log.e(TAG, "健康数据构建失败", e);
             Toast.makeText(this, "健康数据格式错误", Toast.LENGTH_SHORT).show();
@@ -574,7 +584,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void connectToDevice() {
         if (connectedDevice == null) {
-            Toast.makeText(this, "Please select a device first", Toast.LENGTH_SHORT).show();
+            ttsManager.showToastWithTTS("请先选择设备");
             return;
         }
 
@@ -592,15 +602,16 @@ public class MainActivity extends AppCompatActivity {
 
                 mainHandler.post(() -> {
                     statusText.setText("Connected to " + connectedDevice.getName());
-                    Toast.makeText(MainActivity.this, "Connected successfully!", Toast.LENGTH_SHORT).show();
+                    ttsManager.showToastWithTTS("连接成功");
                 });
                 Log.d(TAG, "BluetoothSocket isConnected: " + bluetoothSocket.isConnected());
 
             } catch (IOException e) {
                 Log.e(TAG, "Connection failed", e);
+                isConnected = false; // 确保连接失败时设置为false
                 mainHandler.post(() -> {
                     statusText.setText("Connection failed: " + e.getMessage());
-                    Toast.makeText(MainActivity.this, "Connection failed!", Toast.LENGTH_SHORT).show();
+                    ttsManager.showToastWithTTS("连接失败");
                 });
             }
         }).start();
@@ -623,6 +634,9 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 }
             }
+            isConnected = false;
+            ttsManager.showToastWithTTS("蓝牙连接已断开");
+
         });
         readThread.start();
     }
@@ -659,8 +673,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sendCommand(JSONObject command) {
-        if (!isConnected || outputStream == null) {
-            Toast.makeText(this, "Not connected to device", Toast.LENGTH_SHORT).show();
+        if (!isConnected || outputStream == null || bluetoothSocket == null || !bluetoothSocket.isConnected()) {
+            ttsManager.showToastWithTTS("设备未连接");
             return;
         }
 
@@ -724,6 +738,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void configWifi() {
+        // 从SharedPreferences加载上次的配置
+        String lastSsid = prefs.getString("wifi_last_ssid", "");
+        String lastAuth = prefs.getString("wifi_last_auth", "WPA2_PSK");
+        String lastUsername = prefs.getString("wifi_last_username", "");
+        boolean savePassword = prefs.getBoolean("wifi_save_password", false);
+        String lastPassword = savePassword ? prefs.getString("wifi_last_password", "") : "";
+
         // 创建输入框
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -732,6 +753,7 @@ public class MainActivity extends AppCompatActivity {
         // 网络名输入框
         final EditText ssidInput = new EditText(this);
         ssidInput.setHint("网络名");
+        ssidInput.setText(lastSsid); // 恢复上次的SSID
         layout.addView(ssidInput);
 
         // 认证方式下拉选择
@@ -747,44 +769,70 @@ public class MainActivity extends AppCompatActivity {
         ArrayAdapter<String> authAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, authOptions);
         authAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         authSpinner.setAdapter(authAdapter);
+
+        // 设置上次选择的认证方式
+        for (int i = 0; i < authValues.length; i++) {
+            if (authValues[i].equals(lastAuth)) {
+                authSpinner.setSelection(i);
+                break;
+            }
+        }
+
         layout.addView(authSpinner);
 
         // 用户名输入框
         final EditText usernameInput = new EditText(this);
         usernameInput.setHint("用户名 (企业网络需要)");
+        usernameInput.setText(lastUsername); // 恢复上次的用户名
         layout.addView(usernameInput);
 
         // 密码输入框
         final EditText passwordInput = new EditText(this);
         passwordInput.setHint("密码");
         passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passwordInput.setText(lastPassword); // 恢复上次的密码（如果用户选择保存）
         layout.addView(passwordInput);
+
+        // 保存密码选项
+        android.widget.CheckBox savePasswordCheckBox = new android.widget.CheckBox(this);
+        savePasswordCheckBox.setText("记住密码");
+        savePasswordCheckBox.setChecked(savePassword);
+        savePasswordCheckBox.setPadding(0, 20, 0, 10);
+        layout.addView(savePasswordCheckBox);
+
+        // 根据认证方式显示/隐藏用户名输入框的方法
+        Runnable updateInputVisibility = () -> {
+            String selectedAuth = authValues[authSpinner.getSelectedItemPosition()];
+            // 只有企业网络(EAP_PEAP, EAP_TTLS)需要用户名
+            if ("EAP_PEAP".equals(selectedAuth) || "EAP_TTLS".equals(selectedAuth)) {
+                usernameInput.setVisibility(View.VISIBLE);
+            } else {
+                usernameInput.setVisibility(View.GONE);
+            }
+
+            // 开放网络不需要密码
+            if ("OPEN".equals(selectedAuth)) {
+                passwordInput.setVisibility(View.GONE);
+                savePasswordCheckBox.setVisibility(View.GONE);
+            } else {
+                passwordInput.setVisibility(View.VISIBLE);
+                savePasswordCheckBox.setVisibility(View.VISIBLE);
+            }
+        };
+
+        // 初始化时设置输入框可见性
+        updateInputVisibility.run();
 
         // 根据认证方式显示/隐藏用户名输入框
         authSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                String selectedAuth = authValues[position];
-                // 只有企业网络(EAP_PEAP, EAP_TTLS)需要用户名
-                if ("EAP_PEAP".equals(selectedAuth) || "EAP_TTLS".equals(selectedAuth)) {
-                    usernameInput.setVisibility(View.VISIBLE);
-                } else {
-                    usernameInput.setVisibility(View.GONE);
-                }
-
-                // 开放网络不需要密码
-                if ("OPEN".equals(selectedAuth)) {
-                    passwordInput.setVisibility(View.GONE);
-                } else {
-                    passwordInput.setVisibility(View.VISIBLE);
-                }
+                updateInputVisibility.run();
             }
 
             @Override
             public void onNothingSelected(android.widget.AdapterView<?> parent) {
-                // 默认显示密码输入框，隐藏用户名输入框
-                usernameInput.setVisibility(View.GONE);
-                passwordInput.setVisibility(View.VISIBLE);
+                updateInputVisibility.run();
             }
         });
 
@@ -797,6 +845,7 @@ public class MainActivity extends AppCompatActivity {
                         String auth = authValues[authSpinner.getSelectedItemPosition()];
                         String username = usernameInput.getText().toString().trim();
                         String password = passwordInput.getText().toString().trim();
+                        boolean shouldSavePassword = savePasswordCheckBox.isChecked();
 
                         // 验证必填字段
                         if (TextUtils.isEmpty(ssid)) {
@@ -815,6 +864,21 @@ public class MainActivity extends AppCompatActivity {
                             Toast.makeText(MainActivity.this, "企业网络需要输入用户名", Toast.LENGTH_SHORT).show();
                             return;
                         }
+
+                        // 保存配置到SharedPreferences
+                        SharedPreferences.Editor editor = prefs.edit();
+                        editor.putString("wifi_last_ssid", ssid);
+                        editor.putString("wifi_last_auth", auth);
+                        editor.putString("wifi_last_username", username);
+                        editor.putBoolean("wifi_save_password", shouldSavePassword);
+
+                        if (shouldSavePassword) {
+                            editor.putString("wifi_last_password", password);
+                        } else {
+                            editor.remove("wifi_last_password");
+                        }
+
+                        editor.apply();
 
                         JSONObject command = new JSONObject();
                         JSONObject wifiData = new JSONObject();
@@ -852,7 +916,6 @@ public class MainActivity extends AppCompatActivity {
 
         dialog.show();
     }
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -889,7 +952,7 @@ public class MainActivity extends AppCompatActivity {
             if (allGranted) {
                 startDiscovery();
             } else {
-                Toast.makeText(this, "需要蓝牙和位置权限才能扫描设备", Toast.LENGTH_SHORT).show();
+                ttsManager.showToastWithTTS("需要蓝牙和位置权限才能扫描设备");
             }
         }
     }
@@ -901,7 +964,7 @@ public class MainActivity extends AppCompatActivity {
             if (resultCode == RESULT_OK) {
                 loadPairedDevices();
             } else {
-                Toast.makeText(this, "Bluetooth is required for this app", Toast.LENGTH_SHORT).show();
+                ttsManager.showToastWithTTS("应用需要蓝牙功能");
             }
         }
         if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
@@ -918,8 +981,8 @@ public class MainActivity extends AppCompatActivity {
                     uploadImageToServer(encodedImage);
                 } catch (Exception e) {
                     Log.e(TAG, "Error processing image", e);
-                    mainHandler.post(() -> Toast.makeText(MainActivity.this,
-                            "图片处理失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                    mainHandler.post(() ->                         ttsManager.showToastWithTTS("图片处理失败")
+                    );
                 }
             });
         }
@@ -930,7 +993,7 @@ public class MainActivity extends AppCompatActivity {
 
         mainHandler.post(() -> {
             statusText.setText("正在上传图片到服务器...");
-            Toast.makeText(MainActivity.this, "开始上传图片", Toast.LENGTH_SHORT).show();
+            ttsManager.showToastWithTTS("开始上传图片");
         });
 
         executorService.execute(() -> {
@@ -983,8 +1046,8 @@ public class MainActivity extends AppCompatActivity {
                     // 7. 上传成功处理
                     mainHandler.post(() -> {
                         statusText.setText("图片上传成功: " + remoteFileName);
-                        Toast.makeText(MainActivity.this,
-                                "图片上传成功!", Toast.LENGTH_SHORT).show();
+                        ttsManager.showToastWithTTS("图片上传成功");
+
                     });
 
                 }
@@ -992,8 +1055,8 @@ public class MainActivity extends AppCompatActivity {
                 Log.e(TAG, "Error uploading image", e);
                 mainHandler.post(() -> {
                     statusText.setText("上传失败: " + e.getMessage());
-                    Toast.makeText(MainActivity.this,
-                            "上传失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    ttsManager.showToastWithTTS("上传失败");
+
                 });
             } finally {
                 // 9. 关闭连接
@@ -1005,5 +1068,10 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+    private void toggleTTS() {
+        boolean enabled = !ttsManager.isEnabled();
+        ttsManager.setEnabled(enabled);
+        ttsManager.showToastWithTTS(enabled ? "语音播报已开启" : "语音播报已关闭");
     }
 }

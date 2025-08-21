@@ -110,6 +110,7 @@ public class SettingsActivity extends AppCompatActivity {
         defaultTags.add(new HealthTag("心率", "bpm", "heartRate", true));
         defaultTags.add(new HealthTag("体温", "℃", "bodyTemp", true));
         defaultTags.add(new HealthTag("血氧饱和度", "%", "bloodOxygen", true));
+        defaultTags.add(new HealthTag("呼吸率", "bpm", "respiratoryRate", true));
         defaultTags.add(new HealthTag("医生备注", "", "medicalNotes", true));
         return defaultTags;
     }

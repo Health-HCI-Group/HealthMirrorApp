@@ -28,6 +28,16 @@
                 android:gravity="center" />
 
             <Button
+                android:id="@+id/toggleTtsButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:text="🔊"
+                android:textSize="16sp"
+                android:backgroundTint="#4CAF50"
+                android:textColor="#fff"
+                android:layout_marginEnd="8dp" />
+
+            <Button
                 android:id="@+id/settingsButton"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
